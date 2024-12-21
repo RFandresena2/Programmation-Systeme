@@ -1,0 +1,35 @@
+Base de donnée
+    Création
+        CREATE DATABASE nom_base
+    Utilisation
+        USE nom_base
+    
+Table 
+    Creation
+        CREATE TABLE table (attrbiut1 {Domaine1}, attribut2 {Domaine2})
+        (Domaine : DomaineFini,DomaineInfi,DomaineMixte: séparé par ",")
+    Insertion
+        INSERT INTO table (Attribut (séparé par ",")) VALUES (valeur (séparé par ","))
+    Utilisation
+        Normal
+            SELECT Attribut (séparé par ",") FROM table
+        Avec WHERE
+            SELECT Attribut (séparé par ",") FROM table WHERE (condition1 AND condition2) OR (c3 AND c4)
+        Avec JOIN
+            SELECT Attribut (séparé par ",") FROM table t1 JOIN table2 t2 ON t1.a1 = t2.a2
+            (même chose pour LEFT JOIN, RIGHT JOIN, OUTER JOIN)
+
+
+
+            ActiveBase: progsys
+Base: progsys
+Relations:
+
+  - Table: sys
+    Attributs:
+      - nom {String}
+      - age {50, 20, 10}
+    Lignes:
+      - Alice, 10
+      - Jacqueline, 10
+

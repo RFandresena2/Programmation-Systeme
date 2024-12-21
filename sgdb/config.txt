@@ -1,0 +1,4 @@
+port=12345
+maxClients=2
+logFile=server.log
+portBackup=12346

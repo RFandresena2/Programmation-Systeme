@@ -1,0 +1,123 @@
+CREATE TABLE ft (nom {1,1002,"dgdghdhbdfhbcjhd"})
+CREATE TABLE Etudiants (Nom VARCHAR, Age INTEGER);
+CREATE TABLE table (nom {String}, age {20,10,50})
+CREATE TABLE person (nom {String}, age {20,10,50})
+CREATE TABLE table (nom {String,1,2,"asa"}, age {20,10,50})
+INSERT INTO table (nom, age) VALUES ("Alice", 20)
+INSERT INTO person (nom, age) VALUES ("Alice", 20)
+INSERT INTO table (nom) VALUES ("Alice")
+INSERT INTO person (nom,age) VALUES ("Bob",10)
+INSERT INTO person (nom,age) VALUES ("Jean",20)
+INSERT INTO person (nom,age) VALUES ("Xavier",50)
+INSERT INTO person (nom,age) VALUES ("Rolland",50)
+
+
+SELECT nom FROM person WHERE (age < 20 AND nom = Bob) OR (age = 20 AND nom = Alice)
+
+SELECT * FROM person p1 JOIN personne p2 ON p1.nom = p2.nom
+
+SELECT p1.nom, p2.nom FROM prog p1 JOIN sys p2 ON p1.nom = p2.nom
+
+SELECT * FROM person p1 JOIN personne p2 ON p1.nom = p2.nom WHERE
+
+    public static String insererDonnees(String requete) {
+        try {
+            // Extraire le nom de la table et les valeurs à insérer
+            String pattern = "INSERT INTO\\s+(\\w+)\\s*\\((.*?)\\)\\s*VALUES\\s*\\((.*?)\\)";
+            Pattern regex = Pattern.compile(pattern, Pattern.CASE_INSENSITIVE);
+            Matcher matcher = regex.matcher(requete);
+
+            if (!matcher.find()) {
+                return "Erreur : Syntaxe incorrecte pour la requête INSERT INTO.";
+            }
+
+            String nomTable = matcher.group(1);
+            String colonnesStr = matcher.group(2).trim();
+            String valeursStr = matcher.group(3).trim();
+
+            // Vérifier si une base est active
+            String baseActive = obtenirBaseActive();
+            if (baseActive == null) {
+                return "Erreur : Aucune base active. Utilisez 'USE <nom_base>' pour sélectionner une base.";
+            }
+
+            // Charger la table
+            if (verifierExistenceRelation(baseActive, nomTable)) {
+
+            } else {
+                return "La table " + nomTable + " n'existe pas";
+            }
+
+            // Parser les colonnes
+            String[] colonnes = colonnesStr.split(",");
+            for (int i = 0; i < colonnes.length; i++) {
+                colonnes[i] = colonnes[i].trim();
+            }
+
+            // Parser les valeurs
+            String[] valeurs = valeursStr.split(",");
+            for (int i = 0; i < valeurs.length; i++) {
+                valeurs[i] = valeurs[i].trim().replace("\"", "");
+                System.out.println("les valeur = " + valeurs[i]);
+            }
+
+            // Vérifier la correspondance entre colonnes et valeurs
+            if (colonnes.length != valeurs.length) {
+                return "Erreur : Le nombre de colonnes ne correspond pas au nombre de valeurs.";
+            }
+
+            try {
+                Relation table = chargerRelation(baseActive, nomTable);
+                System.out.println("-------------------------------");
+                System.out.println("table " + table);
+                System.out.println("-------------------------------");
+                // Vérification des domaines
+                Object[] valeursObjets = new Object[valeurs.length];
+                for (int i = 0; i < valeurs.length; i++) {
+                    // System.out.println(table);
+                    Attribut attribut = table.getAttributParNom(colonnes[i]);
+                    if (attribut == null) {
+                        return "Erreur : L'attribut '" + colonnes[i] + "' n'existe pas dans la table.";
+                    }
+
+                    // Convertir les valeurs en objets
+
+                    valeursObjets[i] = convertirValeur(attribut.getDomaine(), valeurs[i]);
+                    if (valeursObjets[i] == null) {
+                        return "La valeur " + valeurs[i] + " ne correspond pas au domaine " + attribut.getDomaine();
+                    }
+                    System.out.println("domaine de l'attrbitu " + attribut.getNom() + " est " + attribut.getDomaine());
+                    System.out.println("valeurs = " + valeursObjets[i]);
+                }
+                System.out.println("eto");
+                // Construire une ligne et valider avec `verifierLigne`
+                Ligne nouvelleLigne = new Ligne(valeursObjets);
+                table.verifierLigne(nouvelleLigne);
+                System.out.println("eto1");
+                // Ajouter la ligne à la table
+                table.ajouterLigne(nouvelleLigne);
+                System.out.println("eto2");
+                // Mettre à jour le fichier
+                mettreAJourFichier(table, baseActive);
+                System.out.println("eto3");
+                return "Données insérées avec succès dans la table '" + nomTable + "'.";
+            } catch (Exception e) {
+                return "erreur lors du chargement de la relation";
+            }
+        } catch (IllegalArgumentException e) {
+            return "Erreur : " + e.getMessage();
+        } catch (IOException e) {
+            e.printStackTrace();
+            return "Erreur : Une exception est survenue lors de l'insertion des données.";
+        }
+    }
+
+
+
+
+
+
+
+
+
+    

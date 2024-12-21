@@ -1,0 +1,19 @@
+ActiveBase: progsys
+Base: progsys
+Relations:
+
+  - Table: sys
+    Attributs:
+      - nom {String}
+      - age {50, 20, 10}
+    Lignes:
+      - Jacqueline, 20
+      - Jean, 10
+
+  - Table: prog
+    Attributs:
+      - nom {String}
+      - age {50, 20, 10}
+    Lignes:
+      - Jean, 10
+

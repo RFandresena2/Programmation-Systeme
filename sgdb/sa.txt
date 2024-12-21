@@ -1,0 +1,721 @@
+package reseaux;
+
+import rlt.*;
+import domaine.*;
+import java.io.*;
+import java.util.*;
+import java.util.concurrent.ExecutionException;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
+
+public class FichierGestion {
+
+    private static final String FICHIER = "Data.txt";
+
+    // Sauvegarde la base dans le fichier
+    public static void sauvegarderBase(Base base) throws IOException {
+        try (BufferedWriter writer = new BufferedWriter(new FileWriter(FICHIER, true))) {
+            writer.write("Base: " + base.getNom() + "\n");
+            writer.write("Relations:\n");
+            for (Relation relation : base.getRelations()) {
+                writer.write("- " + relation.getNom() + "\n");
+                writer.write("  Attributs: " + Arrays.toString(relation.getAttributs()) + "\n");
+                writer.write("  Lignes:\n");
+                for (Ligne ligne : relation.getLignes()) {
+                    writer.write("    " + Arrays.toString(ligne.getElements()) + "\n");
+                }
+            }
+            writer.write("\n");
+        }
+    }
+
+    // Vérifie si une base existe déjà dans le fichier
+    public static boolean baseExiste(String nomBase) throws IOException {
+        try (BufferedReader reader = new BufferedReader(new FileReader(FICHIER))) {
+            String ligne;
+            while ((ligne = reader.readLine()) != null) {
+                if (ligne.startsWith("Base: " + nomBase)) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    public static String utiliserBase(String nomBase) {
+        try (BufferedReader reader = new BufferedReader(new FileReader("Data.txt"))) {
+            boolean baseExiste = false;
+            StringBuilder contenuFichier = new StringBuilder();
+            String ligne;
+
+            // Lire toutes les lignes et vérifier si la base existe
+            while ((ligne = reader.readLine()) != null) {
+                contenuFichier.append(ligne).append(System.lineSeparator());
+                if (ligne.equals("Base: " + nomBase)) {
+                    baseExiste = true;
+                }
+            }
+
+            if (!baseExiste) {
+                return "Erreur : La base '" + nomBase + "' n'existe pas.";
+            }
+
+            // Mettre à jour ou ajouter ActiveBase
+            String nouveauContenu = contenuFichier.toString();
+            if (nouveauContenu.contains("ActiveBase:")) {
+                // Remplacer la base active actuelle
+                nouveauContenu = nouveauContenu.replaceFirst("ActiveBase: .*", "ActiveBase: " + nomBase);
+            } else {
+                // Ajouter la base active à la fin du fichier
+                nouveauContenu += "ActiveBase: " + nomBase + System.lineSeparator();
+            }
+
+            // Écrire les modifications dans le fichier
+            try (BufferedWriter writer = new BufferedWriter(new FileWriter("Data.txt"))) {
+                writer.write(nouveauContenu);
+            } catch (Exception e) {
+                return "erreur";
+            }
+            return "Base '" + nomBase + "' sélectionnée comme base active.";
+        } catch (IOException e) {
+            e.printStackTrace();
+            return "Erreur lors de l'accès au fichier des bases.";
+        }
+    }
+
+    private static String obtenirBaseActive() {
+        try (BufferedReader reader = new BufferedReader(new FileReader("Data.txt"))) {
+            String ligne;
+            while ((ligne = reader.readLine()) != null) {
+                if (ligne.startsWith("ActiveBase: ")) {
+                    return ligne.substring("ActiveBase: ".length()).trim();
+                }
+            }
+            return null; // Pas de base active définie
+        } catch (IOException e) {
+            e.printStackTrace();
+            return null;
+        }
+    }
+
+    public static String creerTable(String requete) {
+        try {
+            // Lire la base active
+            String baseActive = obtenirBaseActive();
+            if (baseActive == null) {
+                return "Erreur : Aucune base active n'est définie. Utilisez 'USE <nom_base>' pour en sélectionner une.";
+            }
+
+            // Extraire le nom de la table et ses attributs depuis la requête
+            Pattern pattern = Pattern.compile("CREATE TABLE (\\w+) \\((.+)\\)");
+            Matcher matcher = pattern.matcher(requete);
+            if (!matcher.find()) {
+                return "Erreur : Syntaxe invalide. La requête doit être de la forme 'CREATE TABLE nom_table (attribut1 {domaine}, ...)'";
+            }
+
+            String nomTable = matcher.group(1);
+            String attributsDef = matcher.group(2);
+
+            // Vérifier si la table existe déjà
+            try (BufferedReader reader = new BufferedReader(new FileReader("Data.txt"))) {
+                String ligne;
+                boolean baseTrouvee = false;
+
+                while ((ligne = reader.readLine()) != null) {
+                    if (ligne.equals("Base: " + baseActive)) {
+                        baseTrouvee = true;
+                    } else if (baseTrouvee && ligne.equals("  - Table: " + nomTable)) {
+                        return "Erreur : La table '" + nomTable + "' existe déjà dans la base '" + baseActive + "'.";
+                    } else if (baseTrouvee && ligne.startsWith("Base: ")) {
+                        // Une autre base commence, on peut arrêter la recherche
+                        break;
+                    }
+                }
+            }
+
+            // Construire la définition de la table
+            StringBuilder tableDefinition = new StringBuilder();
+            tableDefinition.append("  - Table: ").append(nomTable).append(System.lineSeparator());
+            tableDefinition.append("    Attributs:").append(System.lineSeparator());
+
+            // Parsing des attributs en respectant le domaine complet sur une ligne
+            String[] attributs = attributsDef.split(",");
+            for (int i = 0; i < attributs.length; i++) {
+                String attribut = attributs[i].trim();
+                if (attribut.contains("{")) {
+                    // Rassembler les parties d'un domaine entre accolades
+                    StringBuilder domaineComplet = new StringBuilder(attribut);
+                    while (!attribut.endsWith("}")) {
+                        i++; // Passer à la partie suivante
+                        attribut = attributs[i].trim();
+                        domaineComplet.append(", ").append(attribut);
+                    }
+                    tableDefinition.append("      - ").append(domaineComplet).append(System.lineSeparator());
+                } else {
+                    tableDefinition.append("      - ").append(attribut).append(System.lineSeparator());
+                }
+            }
+            tableDefinition.append("    Lignes:").append(System.lineSeparator());
+
+            // Ajouter la table au fichier
+            try (BufferedReader reader = new BufferedReader(new FileReader("Data.txt"));
+                    BufferedWriter writer = new BufferedWriter(new FileWriter("Data_temp.txt"))) {
+
+                String ligne;
+                boolean baseTrouvee = false;
+                while ((ligne = reader.readLine()) != null) {
+                    writer.write(ligne);
+                    writer.newLine();
+
+                    if (ligne.equals("Base: " + baseActive)) {
+                        baseTrouvee = true;
+                    } else if (baseTrouvee && ligne.startsWith("Base: ")) {
+                        // Ajouter la définition de la table avant une nouvelle base ou fin du fichier
+                        writer.write(tableDefinition.toString());
+                        writer.newLine();
+                        baseTrouvee = false;
+                    }
+                }
+
+                // Si la base active est trouvée mais pas suivie d'une autre base, ajouter la
+                // table
+                if (baseTrouvee) {
+                    writer.write(tableDefinition.toString());
+                    writer.newLine();
+                }
+            }
+
+            // Renommer le fichier temporaire pour remplacer l'ancien
+            File oldFile = new File("Data.txt");
+            File newFile = new File("Data_temp.txt");
+            if (!oldFile.delete() || !newFile.renameTo(oldFile)) {
+                return "Erreur : Impossible de mettre à jour le fichier des bases.";
+            }
+
+            return "Table '" + nomTable + "' créée avec succès dans la base '" + baseActive + "'.";
+        } catch (IOException e) {
+            e.printStackTrace();
+            return "Erreur : Une erreur est survenue lors de la création de la table.";
+        }
+    }
+
+    public static String insererDonnees(String requete) {
+        try {
+            // Extraire le nom de la table et les valeurs à insérer
+            String pattern = "INSERT INTO\\s+(\\w+)\\s*\\((.*?)\\)\\s*VALUES\\s*\\((.*?)\\)";
+            Pattern regex = Pattern.compile(pattern, Pattern.CASE_INSENSITIVE);
+            Matcher matcher = regex.matcher(requete);
+
+            if (!matcher.find()) {
+                return "Erreur : Syntaxe incorrecte pour la requête INSERT INTO.";
+            }
+
+            String nomTable = matcher.group(1);
+            String colonnesStr = matcher.group(2).trim();
+            String valeursStr = matcher.group(3).trim();
+
+            // Vérifier si une base est active
+            String baseActive = obtenirBaseActive();
+            if (baseActive == null) {
+                return "Erreur : Aucune base active. Utilisez 'USE <nom_base>' pour sélectionner une base.";
+            }
+
+            // Charger la table
+            if (verifierExistenceRelation(baseActive, nomTable)) {
+
+            } else {
+                return "La table " + nomTable + " n'existe pas";
+            }
+
+            // Parser les colonnes
+            String[] colonnes = colonnesStr.split(",");
+            for (int i = 0; i < colonnes.length; i++) {
+                colonnes[i] = colonnes[i].trim();
+            }
+
+            // Parser les valeurs
+            String[] valeurs = valeursStr.split(",");
+            for (int i = 0; i < valeurs.length; i++) {
+                valeurs[i] = valeurs[i].trim().replace("\"", "");
+                System.out.println("les valeur = " + valeurs[i]);
+            }
+
+            // Vérifier la correspondance entre colonnes et valeurs
+            if (colonnes.length != valeurs.length) {
+                return "Erreur : Le nombre de colonnes ne correspond pas au nombre de valeurs.";
+            }
+
+            try {
+                Relation table = chargerRelation(baseActive, nomTable);
+                System.out.println("-------------------------------");
+                System.out.println("table " + table);
+                System.out.println("-------------------------------");
+                // Vérification des domaines
+                Object[] valeursObjets = new Object[valeurs.length];
+                for (int i = 0; i < valeurs.length; i++) {
+                    // System.out.println(table);
+                    Attribut attribut = table.getAttributParNom(colonnes[i]);
+                    if (attribut == null) {
+                        return "Erreur : L'attribut '" + colonnes[i] + "' n'existe pas dans la table.";
+                    }
+
+                    // Convertir les valeurs en objets
+
+                    valeursObjets[i] = convertirValeur(attribut.getDomaine(), valeurs[i]);
+                    if (valeursObjets[i] == null) {
+                        return "La valeur " + valeurs[i] + " ne correspond pas au domaine " + attribut.getDomaine();
+                    }
+                    System.out.println("domaine de l'attrbitu " + attribut.getNom() + " est " + attribut.getDomaine());
+                    System.out.println("valeurs = " + valeursObjets[i]);
+                }
+                System.out.println("eto");
+                // Construire une ligne et valider avec `verifierLigne`
+                Ligne nouvelleLigne = new Ligne(valeursObjets);
+                table.verifierLigne(nouvelleLigne);
+                System.out.println("eto1");
+                // Ajouter la ligne à la table
+                table.ajouterLigne(nouvelleLigne);
+                System.out.println("eto2");
+                // Mettre à jour le fichier
+                mettreAJourFichier(table, baseActive);
+                System.out.println("eto3");
+                return "Données insérées avec succès dans la table '" + nomTable + "'.";
+            } catch (Exception e) {
+                return "erreur lors du chargement de la relation";
+            }
+        } catch (IllegalArgumentException e) {
+            return "Erreur : " + e.getMessage();
+        } catch (IOException e) {
+            e.printStackTrace();
+            return "Erreur : Une exception est survenue lors de l'insertion des données.";
+        }
+    }
+    private static boolean verifierExistenceRelation(String nomBase, String nomRelation) throws IOException {
+        try (BufferedReader reader = new BufferedReader(new FileReader("Data.txt"))) {
+            String ligne;
+            boolean baseTrouvee = false;
+
+            while ((ligne = reader.readLine()) != null) {
+                // Vérifier si c'est la base recherchée
+                if (ligne.startsWith("Base: " + nomBase)) {
+                    baseTrouvee = true;
+                } else if (ligne.startsWith("Base: ") && baseTrouvee) {
+                    // Nouvelle base rencontrée, arrêter la recherche
+                    break;
+                }
+
+                // Si dans la bonne base, chercher la table
+                if (baseTrouvee && ligne.startsWith("  - Table: ")) {
+                    String nomRelationExtraite = ligne.substring("  - Table: ".length()).trim();
+                    if (nomRelationExtraite.equals(nomRelation)) {
+                        // Relation trouvée
+                        return true;
+                    }
+                }
+            }
+        }
+
+        // Base ou table non trouvée
+        return false;
+    }
+
+    private static Relation chargerRelation(String nomBase, String nomTable)
+            throws IOException, ClassNotFoundException {
+        try (BufferedReader reader = new BufferedReader(new FileReader("Data.txt"))) {
+            String ligne;
+            boolean baseTrouvee = false;
+            boolean tableTrouvee = false;
+
+            String nomRelation = null;
+            List<Attribut> attributs = new ArrayList<>();
+            List<Ligne> lignes = new ArrayList<>();
+
+            while ((ligne = reader.readLine()) != null) {
+                ligne = ligne.trim();
+
+                // Identifier la base
+                if (ligne.startsWith("Base: ")) {
+                    if (ligne.equals("Base: " + nomBase)) {
+                        baseTrouvee = true;
+                    } else if (baseTrouvee) {
+                        // Une autre base commence, fin de la recherche
+                        break;
+                    }
+                }
+
+                // Identifier la table
+                if (baseTrouvee && ligne.startsWith("- Table: ")) {
+                    System.out.println("base trouver");
+                    String nomTableCourante = ligne.substring("- Table: ".length()).trim();
+                    if (nomTableCourante.equals(nomTable)) {
+                        tableTrouvee = true;
+                        nomRelation = nomTable;
+                    } else if (tableTrouvee) {
+                        // Une autre table commence, fin de la recherche
+                        break;
+                    }
+                }
+
+                // Lire les attributs
+                if (tableTrouvee && ligne.equals("Attributs:")) {
+                    System.out.println("lectrure des artributs");
+                    // if((ligne = reader.readLine() )!= null)
+                    // {
+
+                    // System.out.println("lignr = "+(ligne = reader.readLine()));
+                    // if(estPremierCaractere(ligne,'-'))
+                    // {
+                    // System.out.println("start with");
+                    // }
+                    // }
+                    System.out.println("ligne =" + ligne);
+                    while ((ligne = reader.readLine()) != null && estPremierCaractere(ligne, '-')) {
+                        System.out.println("miditra while");
+                        ligne = ligne.trim().substring(2); // Supprimer le "- "
+
+                        // Extraire nom et domaine de l'attribut
+                        String[] parts = ligne.split(" ", 2);
+                        if (parts.length != 2) {
+                            throw new IOException("Format invalide pour les attributs : " + ligne);
+                        }
+
+                        String nomAttribut = parts[0].trim();
+                        String domaineDef = parts[1].trim();
+                        String domaineString = determinerDomaine(domaineDef);
+                        domaineDef = enleverAccolades(domaineDef);
+                        System.out.println("Domaine vrai = " + domaineString);
+                        Domaine domaine = null;
+                        // Déterminer le domaine
+                        System.out.println("DomaineDef = " + domaineDef);
+                        if (domaineString.equals("DomaineFini")) {
+                            System.out.println("Domaine Fini");
+                            // Domaine fini
+                            String[] valeurs = domaineDef.split(",");
+                            Set<Object> elements = new HashSet<>();
+                            for (String valeur : valeurs) {
+                                elements.add(convertirValeur(valeur.trim()));
+                            }
+                            domaine = new DomaineFini(elements);
+                        } else if (domaineString.equals("DomaineInfini")) {
+                            System.out.println("Domaine Infini");
+                            // Domaine infini (exemple : String, Integer)
+                            List<Class<?>> types = new ArrayList<>();
+                            String[] classes = domaineDef.split(",");
+                            for (String classe : classes) {
+                                System.out.println("classe " + classe);
+                                types.add(convertirEnClasse(classe));
+                            }
+                            domaine = new DomaineInfini(types);
+                        }
+
+                        else if (domaineString.equals("DomaineMixte")) {
+                            System.out.println("Domaine Mixte");
+
+                            // Identifier la partie des types (avant les accolades) et les valeurs (entre
+                            // les accolades)
+                            int indexDebutFini = domaineDef.indexOf("{");
+                            int indexFinFini = domaineDef.indexOf("}");
+
+                            if (indexDebutFini == -1 || indexFinFini == -1) {
+                                throw new IllegalArgumentException("Format de DomaineMixte incorrect : " + domaineDef);
+                            }
+
+                            // Domaine infini : avant les accolades
+                            String[] typesInfini = domaineDef.substring(0, indexDebutFini).trim().split(",");
+                            List<Class<?>> types = new ArrayList<>();
+                            for (String type : typesInfini) {
+                                if (!type.isEmpty()) {
+                                    types.add(convertirEnClasse(type.trim()));
+                                }
+                            }
+
+                            // Domaine fini : entre les accolades
+                            String[] valeursFini = domaineDef.substring(indexDebutFini + 1, indexFinFini).split(",");
+                            Set<Object> elements = new HashSet<>();
+                            for (String valeur : valeursFini) {
+                                elements.add(convertirValeur(valeur.trim()));
+                            }
+
+                            // Créer le DomaineMixte
+                            domaine = new DomaineMixte(types, elements);
+                        }
+
+                        // Ajouter l'attribut
+                        attributs.add(new Attribut(domaine, nomAttribut));
+                    }
+                }
+
+                // Lire les lignes
+                if (tableTrouvee && ligne.equals("Lignes:")) {
+                    while ((ligne = reader.readLine()) != null && ligne.startsWith("-")) {
+                        String[] valeurs = ligne.substring(2).trim().split(",");
+                        Object[] ligneElements = new Object[valeurs.length];
+
+                        // Convertir chaque élément
+                        for (int i = 0; i < valeurs.length; i++) {
+                            ligneElements[i] = convertirValeur(attributs.get(i).getDomaine(),valeurs[i]);
+                        }
+
+                        lignes.add(new Ligne(ligneElements));
+                    }
+                }
+            }
+
+            // Créer et retourner la relation
+            if (nomRelation != null && !attributs.isEmpty()) {
+                Relation relation = new Relation(nomRelation, attributs.toArray(new Attribut[0]));
+                for (Ligne ligneObj : lignes) {
+                    relation.ajouterLigne(ligneObj);
+                }
+                return relation;
+            }
+
+            throw new IOException(
+                    "La table '" + nomTable + "' dans la base '" + nomBase + "' n'a pas pu être trouvée.");
+        }
+    }
+
+    private static Object convertirValeur(Domaine domaine, String valeur) {
+        System.out.println(domaine);
+        if (domaine instanceof DomaineFini) {
+            // Si le domaine est un DomaineFini, vous pouvez chercher la valeur dans le
+            // domaine fini
+            Set<Object> elements = ((DomaineFini) domaine).getElements();
+            for (Object element : elements) {
+                System.out.println("element = " + element.toString());
+                if (element.toString().equals(valeur)) {
+                    return element;
+                }
+            }
+            return null;
+        } else if (domaine instanceof DomaineInfini) {
+            // Si le domaine est un DomaineInfini, la valeur doit correspondre à un type
+            try {
+                Class<?> type = ((DomaineInfini) domaine).getTypes().get(0); // Par exemple, ici on prend juste le
+                                                                             // premier type
+                return type.getConstructor(String.class).newInstance(valeur);
+            } catch (Exception e) {
+                e.printStackTrace();
+            }
+        } else if (domaine instanceof DomaineMixte) {
+            // Pour DomaineMixte, la conversion peut être plus complexe
+            // Implémentez la logique selon vos besoins
+        }
+        return null; // Si aucun domaine ne correspond
+    }
+
+    private static void mettreAJourFichier(Relation table, String nomBase) throws IOException {
+        File inputFile = new File("Data.txt");
+        File tempFile = new File("Data_temp.txt");
+    
+        try (BufferedReader reader = new BufferedReader(new FileReader(inputFile));
+             BufferedWriter writer = new BufferedWriter(new FileWriter(tempFile))) {
+    
+            String ligne;
+            boolean baseTrouvee = false;
+            boolean tableEcrite = false;
+    
+            while ((ligne = reader.readLine()) != null) {
+                // Vérifier si c'est la base active
+                if (ligne.equals("Base: " + nomBase)) {
+                    baseTrouvee = true;
+                    writer.write(ligne);
+                    writer.newLine();
+                    continue;
+                }
+    
+                // Si une nouvelle base commence, écrire la table mise à jour et continuer
+                if (ligne.startsWith("Base: ") && baseTrouvee && !tableEcrite) {
+                    writer.write(serializeTable(table));
+                    tableEcrite = true;
+                }
+    
+                // Ignorer les lignes de l'ancienne table
+                if (baseTrouvee && ligne.startsWith("  - Table: " + table.getNom())) {
+                    while ((ligne = reader.readLine()) != null && !ligne.startsWith("  - Table: ") && !ligne.startsWith("Base: ")) {
+                        // Skip old table data
+                    }
+    
+                    // Si la fin de fichier ou nouvelle table/base commence, ne pas sauter
+                    if (ligne != null && !ligne.startsWith("Base: ")) {
+                        writer.write(ligne);
+                        writer.newLine();
+                    }
+    
+                    continue;
+                }
+    
+                // Copier les autres lignes normalement
+                writer.write(ligne);
+                writer.newLine();
+            }
+    
+            // Si la table n'a pas été écrite après la base active, écrire à la fin
+            if (baseTrouvee && !tableEcrite) {
+                writer.write(serializeTable(table));
+            }
+        }
+    
+        // Remplacer l'ancien fichier par le nouveau
+        if (!inputFile.delete() || !tempFile.renameTo(inputFile)) {
+            throw new IOException("Erreur lors de la mise à jour du fichier Data.txt.");
+        }
+    }
+    
+    public static Class<?> convertirEnClasse(String nomClasse) throws ClassNotFoundException {
+        switch (nomClasse) {
+            // Types primitifs
+            case "byte":
+                return byte.class;
+            case "short":
+                return short.class;
+            case "int":
+                return int.class;
+            case "long":
+                return long.class;
+            case "float":
+                return float.class;
+            case "double":
+                return double.class;
+            case "char":
+                return char.class;
+            case "boolean":
+                return boolean.class;
+
+            // Types primitifs en boîte
+            case "Byte":
+                return Byte.class;
+            case "Short":
+                return Short.class;
+            case "Integer":
+                return Integer.class;
+            case "Long":
+                return Long.class;
+            case "Float":
+                return Float.class;
+            case "Double":
+                return Double.class;
+            case "Character":
+                return Character.class;
+            case "Boolean":
+                return Boolean.class;
+
+            // Chaîne de caractères
+            case "String":
+                return String.class;
+
+            default:
+                // Si ce n'est pas un type primitif ou standard, on tente de charger la classe
+                // dynamiquement
+                return Class.forName(nomClasse);
+        }
+    }
+
+    public static boolean estPremierCaractere(String ligne, char caractere) {
+        if (ligne == null || ligne.isEmpty()) {
+            return false; // Ligne vide ou null, renvoie false
+        }
+
+        // Parcourir la ligne jusqu'au premier caractère non-espace
+        for (int i = 0; i < ligne.length(); i++) {
+            if (!Character.isWhitespace(ligne.charAt(i))) {
+                return ligne.charAt(i) == caractere;
+            }
+        }
+
+        return false; // Aucun caractère non-espace trouvé
+    }
+
+    public static String determinerDomaine(String input) {
+        if (input == null || !input.startsWith("{") || !input.endsWith("}")) {
+            throw new IllegalArgumentException("Le format du domaine est invalide : " + input);
+        }
+
+        // Supprimer les accolades
+        String contenu = input.substring(1, input.length() - 1).trim();
+        String[] elements = contenu.split(",");
+
+        boolean contientType = false;
+        boolean contientValeur = false;
+
+        for (String element : elements) {
+            element = element.trim();
+            if (element.isEmpty()) {
+                continue;
+            }
+
+            // Vérifier si l'élément est un type valide
+            try {
+                Class.forName("java.lang." + element);
+                contientType = true;
+            } catch (ClassNotFoundException e) {
+                // Vérifier si c'est une valeur valide
+                if (estValeur(element)) {
+                    contientValeur = true;
+                } else {
+                    throw new IllegalArgumentException("Élément non valide dans le domaine : " + element);
+                }
+            }
+        }
+
+        if (contientType && contientValeur) {
+            return "DomaineMixte";
+        } else if (contientType) {
+            return "DomaineInfini";
+        } else if (contientValeur) {
+            return "DomaineFini";
+        } else {
+            throw new IllegalArgumentException("Impossible de déterminer le type de domaine.");
+        }
+    }
+
+    /**
+     * Vérifie si une chaîne représente une valeur valide (entier, double, chaîne
+     * entre guillemets).
+     *
+     * @param valeur La chaîne à vérifier.
+     * @return true si c'est une valeur valide, false sinon.
+     */
+    private static boolean estValeur(String valeur) {
+        try {
+            Integer.parseInt(valeur);
+            return true;
+        } catch (NumberFormatException ignored) {
+        }
+
+        try {
+            Double.parseDouble(valeur);
+            return true;
+        } catch (NumberFormatException ignored) {
+        }
+
+        // Vérifier si c'est une chaîne entre guillemets
+        return valeur.startsWith("\"") && valeur.endsWith("\"");
+    }
+
+    public static String enleverAccolades(String input) {
+        if (input.startsWith("{") && input.endsWith("}")) {
+            return input.substring(1, input.length() - 1);
+        }
+        return input; // Retourne la chaîne d'origine si elle n'a pas les accolades
+    }
+    private static String serializeTable(Relation table) {
+        StringBuilder builder = new StringBuilder();
+        builder.append("  - Table: ").append(table.getNom()).append(System.lineSeparator());
+        builder.append("    Attributs:").append(System.lineSeparator());
+    
+        for (Attribut attribut : table.getAttributs()) {
+            builder.append("      - ").append(attribut.getNom()).append(" {")
+                   .append(attribut.getDomaine().toString()).append("}").append(System.lineSeparator());
+        }
+    
+        builder.append("    Lignes:").append(System.lineSeparator());
+        for (Ligne ligne : table.getLignes()) {
+            builder.append("      - ").append(Arrays.toString(ligne.getElements()).replaceAll("[\\[\\]]", "")).append(System.lineSeparator());
+        }
+    
+        return builder.toString();
+    }
+    
+
+}
